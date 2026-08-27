@@ -1,11 +1,11 @@
-# h618_fast_gpio<br>
+# linux_fast_gpio<br>
 
 Copyright (c) 2026 BitBank Software, Inc.<br>
 Written by Larry Bank<br>
 bitbank@pobox.com<br>
 <br>
 ## What is it?<br>
-This is a small demo program to show how you can directly manipulate the AllWinner H618 GPIO registers from user space. This opens up the possibility of higher speed access as well as features missing from the Linux GPIOD driver such as parallel data read and write.
+This is a small demo program to show how you can directly manipulate the GPIO registers from user space on the H618 and RK3399 SoCs (so far). This opens up the possibility of higher speed access as well as features missing from the Linux GPIOD driver such as parallel data read and write.
 <br>
 
 ## Why did you write it?<br>
