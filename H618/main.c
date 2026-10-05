@@ -87,6 +87,21 @@ PORT_REG *port;
     port->cfg[pin>>3] |= (mode << ((pin & 7) * 4));
 } /* pinMode() */
 //
+// Set a collection of sequential GPIOs to a specific value
+// The data bits and mask must already by shifted into their correct positions
+// e.g. write 8-bits starting at bit 16: 0x00ff0000 0x00550000
+//
+void parallel_write(uint32_t u32Mask, uint32_t u32Value)
+{
+PORT_REG *port;
+uint32_t u32Temp;
+
+    port = (PORT_REG *)&pGPIOBase[(2+(pin>>5))*0x24];
+    u32Temp = (port->data & ~u32Mask);
+    u32Temp |= u32Value;
+    port->data = u32Temp;
+} /* parallel_write() */
+//
 // Set a GPIO output pin to the given state
 //
 void digitalWrite(uint8_t pin, uint8_t data) {
