@@ -17,6 +17,10 @@ Below is an image showing the GPIO pin mapping of the Orange Pi Zero 2W. The exa
 
 <br>
 
+To run the example code on a Pimoroni Display HAT mini, clone and install my bb_spi_lcd library:<br>
+https://github.com/bitbank2/bb_spi_lcd
+
+
 If you find this code useful, please consider becoming a sponsor or sending a donation.
 
 [![paypal](https://www.paypalobjects.com/en_US/i/btn/btn_donateCC_LG.gif)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=SR4F44J2UR8S4)
