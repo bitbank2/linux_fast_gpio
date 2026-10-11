@@ -18,15 +18,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
+#define _DEFAULT_SOURCE
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
 #include <fcntl.h>
+#include <time.h>
 #include <sys/sysinfo.h>
+#include <linux/types.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <bb_spi_lcd.h>
+SPILCD lcd;
+
+// Pimoroni Display HAT mini pin assignments on the OrangePi Zero 3W
+// 
+#define RESET_PIN -1
+// PE4
+#define CS_PIN 0x44
+// PE1
+#define CLK_PIN 0x41
+// PD3
+#define BL_PIN 0x33
+// PE3
+#define DC_PIN 0x43
+// PE2
+#define MOSI_PIN 0x42
 
 // Port access struct
 typedef struct tag_port_register
@@ -62,10 +81,28 @@ static int mem_fd;
 #define GPIO_BASE         0x02000000
 #define GPIO_BLOCK_SIZE (12 * 0x80)
 // 4-bits per pin configuration for 16 possible states
+#ifdef INPUT
+#undef INPUT
+#endif
+#ifdef OUTPUT
+#undef OUTPUT
+#endif
 #define INPUT 0
 #define OUTPUT 1
 // (2-14 = custom functions, e.g. I2C, SPI, PWM, etc)
 #define DISABLED 15
+
+// Return the current time in milliseconds
+int MilliTime(void)
+{
+int iTime;
+struct timespec res;
+
+    clock_gettime(CLOCK_MONOTONIC, &res);
+    iTime = 1000*res.tv_sec + res.tv_nsec/1000000;
+
+    return iTime;
+} /* MilliTime() */
 
 //
 // Prepare direct GPIO port access by mapping
@@ -107,7 +144,7 @@ void *gpio_map;
 //
 // Sets the pin mode to input or output
 //
-void pinMode(uint8_t pin, int mode) {
+void pinMode(int pin, int mode) {
 PORT_REG *port;
 
     port = (PORT_REG *)&pGPIOBase[(1+(pin>>4)) * 0x80];
@@ -122,8 +159,9 @@ PORT_REG *port;
 //
 void parallel_write(uint32_t u32Mask, uint32_t u32Value)
 {
-PORT_REG *port;
-uint32_t u32Temp;
+	(void)u32Mask; (void)u32Value;
+//PORT_REG *port;
+//uint32_t u32Temp;
 
 //    port = (PORT_REG *)&pGPIOBase[(1+(pin>>4))*0x80];
 //    u32Temp = (port->data & ~u32Mask);
@@ -133,7 +171,7 @@ uint32_t u32Temp;
 //
 // Set a GPIO output pin to the given state
 //
-void digitalWrite(uint8_t pin, uint8_t data) {
+void digitalWrite(int pin, int data) {
 PORT_REG *port;
 
     port = (PORT_REG *)&pGPIOBase[(1+(pin>>4))*0x80];
@@ -147,7 +185,7 @@ PORT_REG *port;
 //
 // Read the current value from a GPIO pin
 //
-uint8_t digitalRead(uint8_t pin)
+int digitalRead(int pin)
 {
 PORT_REG *port;
 uint8_t data;
@@ -158,17 +196,105 @@ uint8_t data;
     return data;
 } /* digitalRead() */
 
+void LCDReset(void)
+{
+    if (RESET_PIN != -1) {
+        digitalWrite(RESET_PIN, 0);
+        usleep(100000);
+        digitalWrite(RESET_PIN, 1);
+        usleep(100000);
+        digitalWrite(BL_PIN, 1);
+    }
+} /* LCDReset() */
+
+static inline void delay_cycles(int cycles)
+{
+    while (cycles) {
+        __asm__ __volatile__ ("nop");
+        cycles--;
+    }
+} /* delay_cycles() */
+
+void LCDWriteData(uint8_t *pData, int iLen, int iMode)
+{
+int i, iBit;
+uint8_t uc;
+
+//printf("write data: len=%d, mode=%d\n", iLen, iMode);
+
+    digitalWrite(DC_PIN, (iMode == MODE_DATA)); // 0=CMD/1=DATA
+    digitalWrite(CS_PIN, 0); // start SPI transaction
+    delay_cycles(500); // allow setup time for CS+DC
+    for (i=0; i<iLen; i++) {
+        uc = *pData++;
+	for (iBit=0; iBit<8; iBit++) {
+            digitalWrite(CLK_PIN, 0);
+            digitalWrite(MOSI_PIN, uc & 0x80);
+	    delay_cycles(1);
+            digitalWrite(CLK_PIN, 1);
+	    uc <<= 1;
+	}
+    }
+    digitalWrite(CS_PIN, 1); // end SPI transaction
+} /* LCDWriteData() */
+
+void FastLCDWrite(uint8_t *pData, int iLen, int iMode)
+{
+int i, iBit;
+uint8_t uc;
+volatile uint32_t *pPort;
+uint32_t u32CLKLow, u32Data;
+PORT_REG *port;
+const uint32_t u32CLK = (CLK_PIN & 0xf);
+const uint32_t u32MOSI = (MOSI_PIN & 0xf);
+
+// The SPI CLK and MOSI pins must be on the same GPIO port
+    port = (PORT_REG *)&pGPIOBase[(1+(MOSI_PIN>>4))*0x80];
+    pPort = &port->data; // point to the data register of this port
+    port->data &= ~((1<<u32CLK) | (1<<u32MOSI));
+    digitalWrite(DC_PIN, (iMode == MODE_DATA)); // 0=CMD/1=DATA
+    digitalWrite(CS_PIN, 0); // start SPI transaction
+    u32CLKLow = port->data;
+    delay_cycles(10); // allow setup time for CS+DC
+    for (i=0; i<iLen; i++) {
+        uc = *pData++;
+        for (iBit=0; iBit<8; iBit++) {
+            u32Data = uc >> 7;
+            *pPort = u32CLKLow | (u32Data << u32MOSI); // write data + clock low
+            delay_cycles(4);
+            *pPort = u32CLKLow | ((1 << u32CLK) | (u32Data << u32MOSI));
+	    delay_cycles(4);
+            uc <<= 1;
+        }
+    }
+    digitalWrite(CS_PIN, 1); // end SPI transaction
+} /* FastLCDWrite() */
+
 int main(int argc, char *argv[])
 {
-const uint8_t pin = 0x10; // pin PB0
+int rc;
+int iTime;
 
 	initGPIO();
-	pinMode(pin, OUTPUT);
-	for(int i=0; i<10; i++) {
-		digitalWrite(pin, 0);
-		sleep(1);
-		digitalWrite(pin, 1);
-		sleep(1);
+	pinMode(RESET_PIN, OUTPUT);
+        pinMode(CS_PIN, OUTPUT);
+        pinMode(MOSI_PIN, OUTPUT);
+        pinMode(CLK_PIN, OUTPUT);
+        pinMode(DC_PIN, OUTPUT);
+        pinMode(BL_PIN, OUTPUT);
+	digitalWrite(BL_PIN, 1);
+	spilcdSetCallbacks(&lcd, LCDReset, FastLCDWrite); //LCDWriteData);
+	// Since we're managing the reset and data, we don't have to pass any GPIO pin info to the spilcdInit function
+	rc = spilcdInit(&lcd, LCD_ST7789, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+	if (rc != 0) {
+		printf("Error initializing LCD\n");
+	} else {
+		spilcdSetOrientation(&lcd, LCD_ORIENTATION_270);
+		iTime = MilliTime();
+		spilcdFill(&lcd, TFT_BLACK, DRAW_TO_LCD);
+		iTime = MilliTime() - iTime;
+		printf("fillscreen time = %d ms\n", iTime);
+		spilcdWriteString(&lcd, 0, 0, "Hello World!", TFT_GREEN, TFT_BLACK, FONT_12x16, DRAW_TO_LCD);
 	}
 	return 0;
 } /* main() */
