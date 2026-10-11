@@ -1,5 +1,5 @@
-CFLAGS=-c -std=c99 -Wall -O2
-LINKFLAGS=-lm
+CFLAGS=-c -g -std=c99 -Wall -O2
+LINKFLAGS=-g -lm -lbb_spi_lcd -lgpiod
 
 all: fast_gpio
 
